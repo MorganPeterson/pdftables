@@ -18,9 +18,11 @@ http://denis.papathanasiou.org/2010/08/04/extracting-text-images-from-pdf-files
 # TODO Handle multiple tables on one page
 
 
-import sys
+import argparse
 import codecs
+import sys
 
+from display import to_string
 from pdfminer.pdfparser import PDFParser
 from pdfminer.pdfdocument import PDFDocument
 from pdfminer.pdfpage import PDFPage
@@ -63,16 +65,15 @@ TOP = 3
 RIGHT = 2
 BOTTOM = 1
 
-def get_tables(fh):
+def get_tables(fh, password):
     """
     Return a list of 'tables' from the given file handle, where a table is a
     list of rows, and a row is a list of strings.
     """
     result = []
-    doc, interpreter, device = initialize_pdf_miner(fh)
+    doc, interpreter, device = initialize_pdf_miner(fh, password)
     pages = [page for page in PDFPage.create_pages(doc)]
     doc_length = len(pages)
-    # for i, pdf_page in enumerate(doc.get_pages()):
     for i, pdf_page in enumerate(pages):
         #print("Trying page {}".format(i + 1))
         if not page_contains_tables(pdf_page, interpreter, device):
@@ -111,17 +112,16 @@ def crop_table(table):
             break
 
 
-def initialize_pdf_miner(fh):
+def initialize_pdf_miner(fh, password):
     # Create a PDF parser object associated with the file object.
     parser = PDFParser(fh)
-    # Create a PDF document object that stores the document structure.
-    doc = PDFDocument(parser)
-    # Connect the parser and document objects.
-    parser.set_document(doc)
-    # old-way = doc.set_parser(parser)
-    #           doc.initialize("")
     # Supply the password for initialization.
     # (If no password is set, give an empty string.)
+    pw = password or ""
+    # Create a PDF document object that stores the document structure.
+    doc = PDFDocument(parser, pw)
+    # Connect the parser and document objects.
+    parser.set_document(doc)
     # Check if the document allows text extraction. If not, abort.
     if not doc.is_extractable:
         raise ValueError("PDFDocument is_extractable was False.")
@@ -632,15 +632,24 @@ def file_handle_from_url(URL):
     fh = StringIO(response.content)
     return fh
 
+def main(file_name, password):
+    with open(file_name, 'rb') as f:
+        tables = get_tables(f, password)
+        for i, table in enumerate(tables):
+            print("---- TABLE {} ----".format(i + 1))
+            print(to_string(table))
 
 if __name__ == '__main__':
     sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
-    if len(sys.argv) > 1:
-        from display import to_string
-        with open(sys.argv[1], 'rb') as f:
-            tables = get_tables(f)
-            for i, table in enumerate(tables):
-                print("---- TABLE {} ----".format(i + 1))
-                print(to_string(table))
-    else:
-        print("Usage: {} <file.pdf>".format(sys.argv[0]))
+
+    parser = argparse.ArgumentParser(description="Parse out tables from PDF")
+    parser.add_argument('-f', '--file', action='store',
+                        required=True,
+                        dest='file_name',
+                        help='PDF file location and name')
+    parser.add_argument('-p', '--password', action='store',
+                        default='',
+                        dest='password',
+                        help='PDF file password if required')
+    cl_results = parser.parse_args()
+    main(cl_results.file_name, cl_results.password)
