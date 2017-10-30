@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
 
 # ScraperWiki Limited
@@ -21,7 +21,10 @@ http://denis.papathanasiou.org/2010/08/04/extracting-text-images-from-pdf-files
 import sys
 import codecs
 
-from pdfminer.pdfparser import PDFParser, PDFDocument
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage
+
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
 from pdfminer.pdfdevice import PDFDevice
 from pdfminer.layout import LAParams, LTPage
@@ -67,8 +70,10 @@ def get_tables(fh):
     """
     result = []
     doc, interpreter, device = initialize_pdf_miner(fh)
-    doc_length = len(list(doc.get_pages()))
-    for i, pdf_page in enumerate(doc.get_pages()):
+    pages = [page for page in PDFPage.create_pages(doc)]
+    doc_length = len(pages)
+    # for i, pdf_page in enumerate(doc.get_pages()):
+    for i, pdf_page in enumerate(pages):
         #print("Trying page {}".format(i + 1))
         if not page_contains_tables(pdf_page, interpreter, device):
             #print("Skipping page {}: no tables.".format(i + 1))
@@ -110,13 +115,13 @@ def initialize_pdf_miner(fh):
     # Create a PDF parser object associated with the file object.
     parser = PDFParser(fh)
     # Create a PDF document object that stores the document structure.
-    doc = PDFDocument()
+    doc = PDFDocument(parser)
     # Connect the parser and document objects.
     parser.set_document(doc)
-    doc.set_parser(parser)
+    # old-way = doc.set_parser(parser)
+    #           doc.initialize("")
     # Supply the password for initialization.
     # (If no password is set, give an empty string.)
-    doc.initialize("")
     # Check if the document allows text extraction. If not, abort.
     if not doc.is_extractable:
         raise ValueError("PDFDocument is_extractable was False.")
