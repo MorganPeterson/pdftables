@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 # ScraperWiki Limited
@@ -19,7 +19,6 @@ http://denis.papathanasiou.org/2010/08/04/extracting-text-images-from-pdf-files
 
 
 import argparse
-import codecs
 import sys
 
 from display import to_string
@@ -36,7 +35,7 @@ import collections
 
 from tree import Leaf, LeafList
 import requests  # TODO: remove this dependency
-from cStringIO import StringIO
+
 import math
 import numpy # TODO: remove this dependency
 from counter import Counter
@@ -75,15 +74,12 @@ def get_tables(fh, password):
     pages = [page for page in PDFPage.create_pages(doc)]
     doc_length = len(pages)
     for i, pdf_page in enumerate(pages):
-        #print("Trying page {}".format(i + 1))
         if not page_contains_tables(pdf_page, interpreter, device):
-            #print("Skipping page {}: no tables.".format(i + 1))
             continue
 
         # receive the LTPage object for the page.
         interpreter.process_page(pdf_page)
         processed_page = device.get_result()
-
         (table, _) = page_to_tables(
             processed_page,
             extend_y=True,
@@ -163,18 +159,19 @@ def page_contains_tables(pdf_page, interpreter, device):
     # receive the LTPage object for the page.
     layout = device.get_result()
     box_list = LeafList().populate(layout)
+    """
     for item in box_list:
         assert isinstance(item, Leaf), "NOT LEAF"
+    """
     yhist = box_list.histogram(Leaf._top).rounder(1)
-
     test = [k for k, v in yhist.items() if v > IS_TABLE_COLUMN_COUNT_THRESHOLD]
     return len(test) > IS_TABLE_ROW_COUNT_THRESHOLD
 
 
 def threshold_above(hist, threshold_value):
     """
-    >>> threshold_above(Counter({518: 10, 520: 20, 530: 20, \
-                                             525: 17}), 15)
+    threshold_above(Counter({518: 10, 520: 20, 530: 20, \
+                            525: 17}), 15)
     [520, 530, 525]
     """
     if not isinstance(hist, Counter):
@@ -282,14 +279,11 @@ def comb_from_uppers_and_lowers(uppers, lowers, tol=1, projection=dict()):
     return comb
 
 def find_minima(lower, upper, projection=dict()):
-
-    #print lower, upper, projection
     if len(projection)==0:
         idx = (lower + upper) / 2.0
     else:
         profile = []
         for i in range(upper, lower):
-            #print projection[i]
             profile.append(projection[i])
 
         val, idx = min((val, idx) for (idx, val) in enumerate(profile))
@@ -301,7 +295,6 @@ def find_minima(lower, upper, projection=dict()):
 def comb_extend(comb, minv, maxv):
     """Extend the comb to minv and maxv"""
     # TODO should this truncate if minv>minc or maxc>maxc
-    # print y_comb
     # Find sort order of comb, convert to ascending
     reversed = False
     if comb[0] > comb[-1]:
@@ -343,15 +336,12 @@ def project_boxes(box_list, orientation, erosion=0):
     maxv = round(max([box.bbox[upper] for box in box_list])) + 2
 
     # Initialise projection structure
-    # print minv, maxv
     coords = range(int(minv), int(maxv))
-    projection = coords
+    projection = list(coords)
 
-    # print projection
     for box in box_list:
         for i in range(int(round(box.bbox[lower])) + erosion,
                        int(round(box.bbox[upper])) - erosion):
-            # projection[i] += 1
             projection.append(i)
 
     return Counter(projection)
@@ -429,14 +419,11 @@ def multi_column_detect(page):
     maxx = round(max([box.right for box in box_list]))
 
     # Initialise projection structure
-    # print minv, maxv
 
     coords = range(int(minv), int(maxv) + vstep, vstep)
 
     pile = collections.OrderedDict(zip(coords, [0] * len(coords)))
-    # print projection
     for box in box_list:
-        # print int(rounder(box.midline, 30)), box.width
         pile[int(rounder(box.midline, vstep))] += box.width
 
     for key, value in pile.items():
@@ -451,7 +438,6 @@ def multi_column_detect(page):
     coords = range(int(boxwidthmin), int(boxwidthmax) + bstep, bstep)
     boxhist = collections.OrderedDict(zip(coords, [0] * len(coords)))
     for box in box_list:
-        # print int(rounder(box.midline, 30)), box.width
         boxhist[int(rounder(box.width, bstep))] += 1
 
     nboxes = len(box_list)
@@ -466,10 +452,6 @@ def multi_column_detect(page):
 
     # This is old fashion projection
     projection = project_boxes(box_list, 'column')
-    # process key and value
-    # print projection
-    # projection = Counter(projection)
-    # print projection
     return pile, projection
 
 
@@ -497,7 +479,7 @@ def page_to_tables(page, extend_y=False, hints=[], atomise=False):
 
     """If miny and maxy are None then we found no tables and should exit"""
     if miny is None and maxy is None:
-       print "found no tables"
+       print("found no tables")
        return table_array, TableDiagnosticData()
 
     if atomise:
@@ -544,12 +526,15 @@ def page_to_tables(page, extend_y=False, hints=[], atomise=False):
 
     # Applying the combs
     table_array = apply_combs(box_list, x_comb, y_comb)
-
     # Strip out leading and trailing spaces when atomise true
     if atomise:
         tmp_table = []
         for row in table_array:
-            stripped_row = map(unicode.strip,row)
+            try:
+                stripped_row = [str.strip(r) for r in row]
+            except:
+                stripped_row = [unicode.strip(r) for r in row]
+
             tmp_table.append(stripped_row)
         table_array = tmp_table
 
@@ -606,11 +591,9 @@ def find_table_bounding_box(box_list, hints=[]):
 def filter_box_list_by_position(box_list, minv, maxv, dir_fun):
     #TODO This should be in tree.py
     filtered_box_list = LeafList()
-    # print minv, maxv, index
     for box in box_list:
         # box = boxstruct[0]
         if dir_fun(box) >= minv and dir_fun(box) <= maxv:
-            # print box
             filtered_box_list.append(box)
 
     return filtered_box_list
@@ -625,13 +608,6 @@ def calculate_modal_height(box_list):
     modal_height = Counter(height_list).most_common(1)
     return modal_height[0][0]
 
-
-def file_handle_from_url(URL):
-    # TODO: move this function to a helper library
-    response = requests.get(URL)
-    fh = StringIO(response.content)
-    return fh
-
 def main(file_name, password):
     with open(file_name, 'rb') as f:
         tables = get_tables(f, password)
@@ -640,8 +616,6 @@ def main(file_name, password):
             print(to_string(table))
 
 if __name__ == '__main__':
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
-
     parser = argparse.ArgumentParser(description="Parse out tables from PDF")
     parser.add_argument('-f', '--file', action='store',
                         required=True,

@@ -15,7 +15,7 @@ def _rounder(val,tol):
      """
      Utility function to round numbers to arbitrary tolerance
      """
-     return round((1.0*val)/tol)*tol
+     return round((1.0 * val) / tol) * tol
 
 class Histogram(Counter):
     def rounder(self, tol):
@@ -70,6 +70,9 @@ class Leaf(object):
     def _centreline(self):
         return self.centreline
 
+    def get_bbox(self):
+        return self.bbox
+
 def children(obj):
     """get all descendants of nested iterables"""
     if isinstance(obj, collections.Iterable):
@@ -89,12 +92,13 @@ class LeafList(list):
 
     def histogram(self, dir_fun):
         # index 0 = left, 1 = top, 2 = right, 3 = bottom
+        """
         for item in self:
-            assert type(item)==Leaf, item
+            assert type(item) == Leaf, item
+        """
         return Histogram(dir_fun(box) for box in self)
 
     def populate(self, pdfpage, interested=['LTPage','LTTextLineHorizontal']):
-    # def populate(self, pdfpage, interested=['LTPage','LTChar']):
         for obj in children(pdfpage):
             if not interested or obj.__class__.__name__ in interested:
                 self.append(Leaf(obj))
