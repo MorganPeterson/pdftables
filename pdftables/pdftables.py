@@ -3,8 +3,6 @@
 
 # ScraperWiki Limited
 # Ian Hopkinson, 2013-06-04
-
-from __future__ import unicode_literals
 """
 Some experiments with pdfminer
 http://www.unixuser.org/~euske/python/pdfminer/programming.html
@@ -12,14 +10,9 @@ Some help here:
 http://denis.papathanasiou.org/2010/08/04/extracting-text-images-from-pdf-files
 """
 
-# TODO Identify multi-column text, for multicolumn text detect per column
-# TODO Dynamic / smarter thresholding
-# TODO Handle argentina_diputados_voting_record.pdf automatically
-# TODO Handle multiple tables on one page
-
-
 import argparse
-import sys
+import math
+import numpy
 
 from display import to_string
 from pdfminer.pdfparser import PDFParser
@@ -31,46 +24,33 @@ from pdfminer.pdfdevice import PDFDevice
 from pdfminer.layout import LAParams, LTPage
 from pdfminer.converter import PDFPageAggregator
 
-import collections
 
 from tree import Leaf, LeafList
-import requests  # TODO: remove this dependency
-
-import math
-import numpy # TODO: remove this dependency
 from counter import Counter
 
 IS_TABLE_COLUMN_COUNT_THRESHOLD = 3
 IS_TABLE_ROW_COUNT_THRESHOLD = 3
-
-class TableDiagnosticData(object):
-    def __init__(self, box_list=LeafList(), top_plot=dict(), left_plot=dict(), x_comb=[], y_comb=[]):
-        self.box_list = box_list
-        self.top_plot = top_plot
-        self.left_plot = left_plot
-        self.x_comb = x_comb
-        self.y_comb = y_comb
-
-class Table(list):
-    def __init__(self, content, page, page_total, table_index, table_index_total):
-        super(Table, self).__init__(content)
-        self.page_number = page
-        self.total_pages = page_total
-        self.table_number_on_page = table_index
-        self.total_tables_on_page = table_index_total
-
 LEFT = 0
 TOP = 3
 RIGHT = 2
 BOTTOM = 1
 
-def get_tables(fh, password):
+class Table(list):
+    """ Hold a table definition """
+    def __init__(self, content, page, table):
+        super(Table, self).__init__(content)
+        self.page_number = page["page"]
+        self.total_pages = page["page_total"]
+        self.table_number_on_page = table["table_index"]
+        self.total_tables_on_page = table["table_index_total"]
+
+def get_tables(file_location, password):
     """
     Return a list of 'tables' from the given file handle, where a table is a
     list of rows, and a row is a list of strings.
     """
     result = []
-    doc, interpreter, device = initialize_pdf_miner(fh, password)
+    doc, interpreter, device = initialize_pdf_miner(file_location, password)
     pages = [page for page in PDFPage.create_pages(doc)]
     doc_length = len(pages)
     for i, pdf_page in enumerate(pages):
@@ -80,13 +60,21 @@ def get_tables(fh, password):
         # receive the LTPage object for the page.
         interpreter.process_page(pdf_page)
         processed_page = device.get_result()
-        (table, _) = page_to_tables(
-            processed_page,
-            extend_y=True,
-            hints=[],
-            atomise=True)
+        table = page_to_tables(processed_page, extend_y=True, hints=[], atomise=True)
         crop_table(table)
-        result.append(Table(table,i+1,doc_length,1,1))
+        result.append(
+            Table(
+                table,
+                {
+                    "page": i+1,
+                    "page_total":doc_length
+                },
+                {
+                    "table_index": 1,
+                    "table_index_total": 1
+                }
+            )
+        )
 
     return result
 
@@ -108,16 +96,16 @@ def crop_table(table):
             break
 
 
-def initialize_pdf_miner(fh, password):
+def initialize_pdf_miner(file_location, password=""):
+    """ Setup PDF Miner """
     # Create a PDF parser object associated with the file object.
-    parser = PDFParser(fh)
+    pdf_parser = PDFParser(file_location)
     # Supply the password for initialization.
     # (If no password is set, give an empty string.)
-    pw = password or ""
     # Create a PDF document object that stores the document structure.
-    doc = PDFDocument(parser, pw)
+    doc = PDFDocument(pdf_parser, password)
     # Connect the parser and document objects.
-    parser.set_document(doc)
+    pdf_parser.set_document(doc)
     # Check if the document allows text extraction. If not, abort.
     if not doc.is_extractable:
         raise ValueError("PDFDocument is_extractable was False.")
@@ -139,22 +127,8 @@ def initialize_pdf_miner(fh, password):
     interpreter = PDFPageInterpreter(rsrcmgr, device)
     return doc, interpreter, device
 
-
-def contains_tables(fh):
-    """
-    contains_tables(fh) takes a file handle and returns a boolean array of the
-    length of the document which is true for pages which contains tables
-    """
-    doc, interpreter, device = initialize_pdf_miner(fh)
-
-    return [page_contains_tables(p, interpreter, device) for
-            p in doc.get_pages()]
-
-
 def page_contains_tables(pdf_page, interpreter, device):
-    # TODO: hide doc, interpreter, device inside a higher level Pdf class. It's
-    # silly that we have to care about these (see function signature!!)
-
+    """ check if page contains table """
     interpreter.process_page(pdf_page)
     # receive the LTPage object for the page.
     layout = device.get_result()
@@ -163,7 +137,7 @@ def page_contains_tables(pdf_page, interpreter, device):
     for item in box_list:
         assert isinstance(item, Leaf), "NOT LEAF"
     """
-    yhist = box_list.histogram(Leaf._top).rounder(1)
+    yhist = box_list.histogram(Leaf.top).rounder(1)
     test = [k for k, v in yhist.items() if v > IS_TABLE_COLUMN_COUNT_THRESHOLD]
     return len(test) > IS_TABLE_ROW_COUNT_THRESHOLD
 
@@ -210,10 +184,8 @@ def apply_combs(box_list, x_comb, y_comb):
     nrows = len(y_comb) - 1
     table_array = [[''] * ncolumns for j in range(nrows)]
     for box in box_list:
-        y = round(box.midline)
-        x = round(box.centreline)
-        rowindex = comb(y_comb, y)
-        columnindex = comb(x_comb, x)
+        rowindex = comb(y_comb, round(box.midline))
+        columnindex = comb(x_comb, round(box.centreline))
         if rowindex != -1 and columnindex != -1:
             # there was already some content at this coordinate so we
             # concatenate (in an arbitrary order!)
@@ -227,10 +199,10 @@ def comb_from_projection(projection, threshold, orientation):
     onto either the y axis (for rows) or the x-axis (for columns). These
     boundaries are known as the comb
     """
-    if orientation=="row":
-        tol=1
-    elif orientation=="column":
-        tol=3
+    if orientation == "row":
+        tol = 1
+    elif orientation == "column":
+        tol = 3
 
     projection_threshold = threshold_above(projection, threshold)
 
@@ -251,73 +223,78 @@ def comb_from_projection(projection, threshold, orientation):
             lowers.append(projection_threshold[i])
     uppers.append(projection_threshold[-1])
 
-    comb = comb_from_uppers_and_lowers(uppers, lowers, tol=tol,
-                                       projection = projection)
-    comb.reverse()
+    comb_over = comb_from_uppers_and_lowers(uppers, lowers, tol=tol,
+                                            projection=projection)
+    comb_over.reverse()
 
-    return comb
+    return comb_over
 
 
-def comb_from_uppers_and_lowers(uppers, lowers, tol=1, projection=dict()):
+def comb_from_uppers_and_lowers(uppers, lowers, tol=1, projection=None):
     """Called by comb_from_projection to calculate the comb given a set of
     uppers and lowers, which are upper and lower edges of the thresholded
     projection"""
     # tol is a tolerance to remove very small minima, increasing to 2 fowls up
     # row separation
+    if projection is None:
+        projection = {}
+
     assert len(uppers) == len(lowers)
     uppers.sort(reverse=True)
     lowers.sort(reverse=True)
-    comb = []
-    comb.append(uppers[0])
+    comb_under = []
+    comb_under.append(uppers[0])
     for i in range(1, len(uppers)):
-        if (lowers[i - 1]-uppers[i])>tol:
-            comb.append(find_minima(lowers[i - 1], uppers[i], projection))
-            #comb.append(find_minima(lowers[i - 1], uppers[i]))
+        if (lowers[i - 1] - uppers[i]) > tol:
+            comb_under.append(find_minima(lowers[i - 1], uppers[i], projection))
 
-    comb.append(lowers[-1])
+    comb_under.append(lowers[-1])
 
-    return comb
+    return comb_under
 
-def find_minima(lower, upper, projection=dict()):
-    if len(projection)==0:
+def find_minima(lower, upper, projection=None):
+    """ find the the median """
+    if projection is None:
+        projection = {}
+
+    if projection == {}:
         idx = (lower + upper) / 2.0
     else:
         profile = []
         for i in range(upper, lower):
             profile.append(projection[i])
 
-        val, idx = min((val, idx) for (idx, val) in enumerate(profile))
-        #val, idx = min(profile)
+        _, idx = min((val, idx) for (idx, val) in enumerate(profile))
         idx = upper + idx
 
     return idx
 
-def comb_extend(comb, minv, maxv):
+def comb_extend(comb_left, minv, maxv):
     """Extend the comb to minv and maxv"""
-    # TODO should this truncate if minv>minc or maxc>maxc
-    # Find sort order of comb, convert to ascending
-    reversed = False
-    if comb[0] > comb[-1]:
-        comb.reverse()
-        reversed = True
+    # Find sort order of comb_left, convert to ascending
+    is_reversed = False
+    if comb_left[0] > comb_left[-1]:
+        comb_left.reverse()
+        is_reversed = True
     # Find min and max of comb
-    minc = comb[0]
-    maxc = comb[-1]
+    minc = comb_left[0]
+    maxc = comb_left[-1]
     # Get average row spacing
-    rowSpacing = numpy.average(numpy.diff(comb))
+    row_spacing = numpy.average(numpy.diff(comb_left))
     # Extend minimum
     if minv < minc:
-        comb.reverse()
-        comb.extend(list(numpy.arange(minc, minv, -rowSpacing))[1:])
-        comb.reverse()
+        comb_left.reverse()
+        print(row_spacing)
+        comb_left.extend(list(numpy.arange(minc, minv, (row_spacing * -1)))[1:])
+        comb_left.reverse()
     # Extend maximum
     if maxv > maxc:
-        comb.extend(list(numpy.arange(maxc, maxv, rowSpacing))[1:])
+        comb_left.extend(list(numpy.arange(maxc, maxv, row_spacing))[1:])
 
-    if reversed:
-        comb.reverse()
-    return comb
+    if is_reversed:
+        comb_left.reverse()
 
+    return comb_left
 
 def project_boxes(box_list, orientation, erosion=0):
     """
@@ -331,8 +308,8 @@ def project_boxes(box_list, orientation, erosion=0):
         lower = BOTTOM
 
     projection = {}
-    minv = round(min([box.bbox[lower]
-                 for box in box_list])) - 2  # ensure some overlap
+    # ensure some overlap
+    minv = round(min([box.bbox[lower] for box in box_list])) - 2
     maxv = round(max([box.bbox[upper] for box in box_list])) + 2
 
     # Initialise projection structure
@@ -346,27 +323,8 @@ def project_boxes(box_list, orientation, erosion=0):
 
     return Counter(projection)
 
-
-def get_pdf_page(fh, pagenumber):
-    doc, interpreter, device = initialize_pdf_miner(fh)
-    pages = list(doc.get_pages())
-
-    try:
-        page = pages[pagenumber - 1]
-    except IndexError:
-        raise IndexError("Invalid page number")
-
-    interpreter.process_page(page)
-    # receive the LTPage object for the page.
-    processedPage = device.get_result()
-    return processedPage
-
-# def getTable(fh, page, extend_y=False, hints=[]):
-#    """placeholder for tests, refactor out"""
-#    return page_to_tables(get_pdf_page(fh, page), extend_y, hints)
-
-
 def get_min_and_max_y_from_hints(box_list, top_string, bottom_string):
+    """ Get min and max from hints """
     miny = None
     maxy = None
     if top_string:
@@ -374,128 +332,51 @@ def get_min_and_max_y_from_hints(box_list, top_string, bottom_string):
         if top_box:
             maxy = top_box[0].top
     if bottom_string:
-        bottomBox = [box for box in box_list if bottom_string in box.text]
-        if bottomBox:
-            miny = bottomBox[0].bottom
+        bottom_box = [box for box in box_list if bottom_string in box.text]
+        if bottom_box:
+            miny = bottom_box[0].bottom
     return miny, maxy
 
-
-def rounder(val, tol):
-    """
-    Utility function to round numbers to arbitrary tolerance
-    """
-    return round((1.0 * val) / tol) * tol
-
-
-#def filter_box_list_by_type(box_list, flt):
-#    return [box for box in box_list if box.classname in flt]
-
-
-def multi_column_detect(page):
-    #TODO This function is under construction
-    """
-    Test for multiColumns from a box_list, returns an integer number of columns
-    and a set of (left, right) pairs delineating any columns
-    """
-    # Ways to identify multicolumns:
-    # 1. High fill factor compared to tables
-    # 2. Gullies at textwidth/2, (textwidth/3, 2*textwidth/3)...
-    # 3. Histogram of boxwidths with peak at some fraction of page width
-    # This is like project_boxes but we are projecting the length of the
-    # textbox onto the axis
-    box_list = LeafList().populate(
-        page, ['LTPage', 'LTTextLineHorizontal']).purge_empty_text()
-
-    # Should use the LTPage object to get page bounding box
-    box_list = filter_box_list_by_type(box_list, 'LTTextLineHorizontal')
-    pile = {}
-    vstep = 5  # should be scaled by modal row height
-    minv = rounder(
-        min([box.bottom for box in box_list]),
-        5)  # ensure some overlap
-    maxv = rounder(max([box.top for box in box_list]), 5)
-
-    minx = round(min([box.left for box in box_list]))  # ensure some overlap
-    maxx = round(max([box.right for box in box_list]))
-
-    # Initialise projection structure
-
-    coords = range(int(minv), int(maxv) + vstep, vstep)
-
-    pile = collections.OrderedDict(zip(coords, [0] * len(coords)))
-    for box in box_list:
-        pile[int(rounder(box.midline, vstep))] += box.width
-
-    for key, value in pile.items():
-        pile[key] = value / (maxx - minx)
-
-    # Box width histogram
-    bstep = 10
-    boxhist = {}
-    boxwidthmin = rounder(min([box.width for box in box_list]), bstep)
-    boxwidthmax = rounder(max([box.width for box in box_list]), bstep)
-
-    coords = range(int(boxwidthmin), int(boxwidthmax) + bstep, bstep)
-    boxhist = collections.OrderedDict(zip(coords, [0] * len(coords)))
-    for box in box_list:
-        boxhist[int(rounder(box.width, bstep))] += 1
-
-    nboxes = len(box_list)
-    for key, value in boxhist.items():
-        boxhist[key] = float(value) / float(nboxes)
-    # TODO: plt undefined
-    fig = plt.figure()
-    ax1 = fig.add_subplot(111)
-    ax1.plot(map(float, boxhist.keys()),
-             map(float, boxhist.values()), color='red')
-    plt.show()
-
-    # This is old fashion projection
-    projection = project_boxes(box_list, 'column')
-    return pile, projection
-
-
-def page_to_tables(page, extend_y=False, hints=[], atomise=False):
-    """
-    Get a rectangular list of list of strings from one page of a document
-    """
-    if not isinstance(page, LTPage):
-        raise TypeError("Page must be LTPage, not {}".format(page.__class__))
-
-    table_array = []
-
+def init_comb(row_projection, column_projection, minx, maxx):
+    """ init our x and y comb for page_to_tables """
     # For LTTextLine horizontal column and row thresholds of 3 work ok
-    columnThreshold = 5  # 3 works for smaller tables
-    rowThreshold = 3
+    column_threshold = 5
+    row_threshold = 3
 
+    y_comb = comb_from_projection(row_projection, row_threshold, "row")
+    y_comb.reverse()
+
+    # column_threshold = max(len(y_comb)*0.75,5)
+    x_comb = comb_from_projection(column_projection, column_threshold, "column")
+
+    x_comb[0] = minx
+    x_comb[-1] = maxx
+
+    return x_comb, y_comb
+
+def apply_the_combs(box_list, x_comb, y_comb, atomise):
+    """ Applying the combs """
+    table_array = apply_combs(box_list, x_comb, y_comb)
+    # Strip out leading and trailing spaces when atomise true
     if atomise:
-        flt = ['LTPage', 'LTTextLineHorizontal', 'LTChar']
-    else:
-        flt = ['LTPage', 'LTTextLineHorizontal']
-    # flt = ['LTPage', 'LTTextLineHorizontal', 'LTFigure']
-    box_list = LeafList().populate(page, flt).purge_empty_text()
+        tmp_table = []
+        for row in table_array:
+            stripped_row = [r.strip() for r in row]
+            tmp_table.append(stripped_row)
+        table_array = tmp_table
+    return table_array
 
-    (minx, maxx, miny, maxy) = find_table_bounding_box(box_list, hints=hints)
-
-    """If miny and maxy are None then we found no tables and should exit"""
-    if miny is None and maxy is None:
-       print("found no tables")
-       return table_array, TableDiagnosticData()
-
-    if atomise:
-        box_list = box_list.filterByType(['LTPage', 'LTChar'])
-
+def get_projection(leaf, box_list, min_max_y, min_max_x):
+    """ get row and column projection """
     filtered_box_list = filter_box_list_by_position(
-        box_list,
-        miny,
-        maxy,
-        Leaf._midline)
-
-    filtered_box_list = filter_box_list_by_position(
-        filtered_box_list,
-        minx,
-        maxx,
-        Leaf._centreline)
+        filter_box_list_by_position(
+            box_list,
+            min_max_y["min"],
+            min_max_y["max"],
+            leaf.midline),
+        min_max_x["min"],
+        min_max_x["max"],
+        leaf.centreline)
 
     # Project boxes onto horizontal axis
     column_projection = project_boxes(filtered_box_list, "column")
@@ -503,51 +384,48 @@ def page_to_tables(page, extend_y=False, hints=[], atomise=False):
     # Project boxes onto vertical axis
     # Erode row height by a fraction of the modal text box height
     erodelevel = int(math.floor(calculate_modal_height(filtered_box_list) / 4))
-    row_projection = project_boxes(
-        filtered_box_list, "row",
-        erosion=erodelevel)
+    row_projection = project_boxes(filtered_box_list, "row", erosion=erodelevel)
+    return row_projection, column_projection
 
-    #
-    y_comb = comb_from_projection(row_projection, rowThreshold, "row")
-    y_comb.reverse()
+def page_to_tables(page, extend_y=False, hints=None, atomise=False):
+    """
+    Get a rectangular list of list of strings from one page of a document
+    """
+    if not isinstance(page, LTPage):
+        raise TypeError("page must be LTPage, not {}".format(page.__class__))
 
-    # columnThreshold = max(len(y_comb)*0.75,5)
-    x_comb = comb_from_projection(column_projection, columnThreshold, "column")
+    if atomise:
+        flt = ['LTPage', 'LTTextLineHorizontal', 'LTChar']
+    else:
+        flt = ['LTPage', 'LTTextLineHorizontal']
+    box_list = LeafList().populate(page, flt).purge_empty_text()
 
-    x_comb[0] = minx
-    x_comb[-1] = maxx
+    (minx, maxx, miny, maxy) = find_table_bounding_box(box_list, hints=hints)
 
+    # If miny and maxy are None then we found no tables and should exit
+    if miny is None and maxy is None:
+        return list([])
+
+    if atomise:
+        box_list = box_list.filterByType(['LTPage', 'LTChar'])
+
+    row_projection, column_projection = get_projection(
+        Leaf,
+        box_list,
+        {"min": miny, "max": maxy},
+        {"min": minx, "max": maxx})
+
+    x_comb, y_comb = init_comb(row_projection, column_projection, minx, maxx)
     # Extend y_comb to page size if extend_y is true
     if extend_y:
-        pageminy = min([box.bottom for box in box_list])
-        pagemaxy = max([box.top for box in box_list])
-        y_comb = comb_extend(y_comb, pageminy, pagemaxy)
-        filtered_box_list = box_list
+        y_comb = comb_extend(
+            y_comb,
+            min([box.bottom for box in box_list]),
+            max([box.top for box in box_list]))
 
-    # Applying the combs
-    table_array = apply_combs(box_list, x_comb, y_comb)
-    # Strip out leading and trailing spaces when atomise true
-    if atomise:
-        tmp_table = []
-        for row in table_array:
-            try:
-                stripped_row = [str.strip(r) for r in row]
-            except:
-                stripped_row = [unicode.strip(r) for r in row]
+    return apply_the_combs(box_list, x_comb, y_comb, atomise)
 
-            tmp_table.append(stripped_row)
-        table_array = tmp_table
-
-    diagnostic_data = TableDiagnosticData(
-        filtered_box_list,
-        column_projection,
-        row_projection,
-        x_comb,
-        y_comb)
-
-    return table_array, diagnostic_data
-
-def find_table_bounding_box(box_list, hints=[]):
+def find_table_bounding_box(box_list, hints=None):
     """ Returns one bounding box (minx, maxx, miny, maxy) for tables based
     on a boxlist
     """
@@ -557,12 +435,12 @@ def find_table_bounding_box(box_list, hints=[]):
     minx = min([box.left for box in box_list])
     maxx = max([box.right for box in box_list])
 
-    """ Get rid of LTChar for this stage """
-    textLine_boxlist = box_list.filterByType('LTTextLineHorizontal')
+    # Get rid of LTChar for this stage
+    text_line_boxlist = box_list.filterByType('LTTextLineHorizontal')
 
-    """ Try to reduce the y range with a threshold, wouldn't work for x"""
-    yhisttop = textLine_boxlist.histogram(Leaf._top).rounder(2)
-    yhistbottom = textLine_boxlist.histogram(Leaf._bottom).rounder(2)
+    # Try to reduce the y range with a threshold, wouldn't work for x"""
+    yhisttop = text_line_boxlist.histogram(Leaf.top).rounder(2)
+    yhistbottom = text_line_boxlist.histogram(Leaf.bottom).rounder(2)
 
     try:
         miny = min(threshold_above(yhistbottom, IS_TABLE_COLUMN_COUNT_THRESHOLD))
@@ -574,22 +452,22 @@ def find_table_bounding_box(box_list, hints=[]):
         maxy = None
         #raise ValueError("table_threshold caught nothing")
 
-    """The table miny and maxy can be modified by hints"""
+    # The table miny and maxy can be modified by hints
     if hints:
         top_string = hints[0]  # "% Change"
         bottom_string = hints[1]  # "15.67%"
         hintedminy, hintedmaxy = get_min_and_max_y_from_hints(
-            textLine_boxlist, top_string, bottom_string)
+            text_line_boxlist, top_string, bottom_string)
         if hintedminy:
             miny = hintedminy
         if hintedmaxy:
             maxy = hintedmaxy
-    """Modify table minx and maxx with hints? """
+    # Modify table minx and maxx with hints?
 
     return (minx, maxx, miny, maxy)
 
 def filter_box_list_by_position(box_list, minv, maxv, dir_fun):
-    #TODO This should be in tree.py
+    """ filter the box by it's position """
     filtered_box_list = LeafList()
     for box in box_list:
         # box = boxstruct[0]
@@ -598,8 +476,8 @@ def filter_box_list_by_position(box_list, minv, maxv, dir_fun):
 
     return filtered_box_list
 
-
 def calculate_modal_height(box_list):
+    """ calculate the modal's height """
     height_list = []
     for box in box_list:
         if box.classname in ('LTTextLineHorizontal', 'LTChar'):
@@ -609,21 +487,22 @@ def calculate_modal_height(box_list):
     return modal_height[0][0]
 
 def main(file_name, password):
-    with open(file_name, 'rb') as f:
-        tables = get_tables(f, password)
+    """ main function """
+    with open(file_name, 'rb') as file_ptr:
+        tables = get_tables(file_ptr, password)
         for i, table in enumerate(tables):
             print("---- TABLE {} ----".format(i + 1))
             print(to_string(table))
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Parse out tables from PDF")
-    parser.add_argument('-f', '--file', action='store',
-                        required=True,
-                        dest='file_name',
-                        help='PDF file location and name')
-    parser.add_argument('-p', '--password', action='store',
-                        default='',
-                        dest='password',
-                        help='PDF file password if required')
-    cl_results = parser.parse_args()
-    main(cl_results.file_name, cl_results.password)
+    ARGS = argparse.ArgumentParser(description="Parse out tables from PDF")
+    ARGS.add_argument('-f', '--file', action='store',
+                      required=True,
+                      dest='file_name',
+                      help='PDF file location and name')
+    ARGS.add_argument('-p', '--password', action='store',
+                      default='',
+                      dest='password',
+                      help='PDF file password if required')
+    CL_RESULTS = ARGS.parse_args()
+    main(CL_RESULTS.file_name, CL_RESULTS.password)

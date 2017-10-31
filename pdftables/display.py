@@ -1,10 +1,11 @@
 #!/usr/bin/env python
-from __future__ import unicode_literals
-from collections import defaultdict
-from io import StringIO
 import sys
+from collections import defaultdict
 
-
+if sys.version_info[0] == 3:
+    from io import StringIO
+elif sys.version_info[0] == 2:
+    from cStringIO import StringIO
 
 def to_string(table):
     """
@@ -22,26 +23,29 @@ def to_string(table):
 
     try:
         result.write("      {}\n".format(' '.join(
-            [unicode(col_index).rjust(width, ' ') for (col_index, width)
-            in enumerate(col_widths)])))
+        [unicode(col_index).rjust(width, ' ') for (col_index, width)
+        in enumerate(col_widths)])))
     except:
         result.write("      {}\n".format(' '.join(
-            [str(col_index).rjust(width, ' ') for (col_index, width)
-            in enumerate(col_widths)])))
-
+        [str(col_index).rjust(width, ' ') for (col_index, width)
+        in enumerate(col_widths)])))
     result.write(hbar)
     for row_index, row in enumerate(table):
-        cells = [cell.rjust(width, ' ') for (cell, width)
-                 in zip(row, col_widths)]
-        result.write("{:>3} | {}|\n".format(row_index, '|'.join(cells)))
+        try:
+            cells = [unicode(cell).rjust(width, ' ') for (cell, width) in zip(row, col_widths)]
+            result.write("{:>3} | {}|\n".format(row_index, '|'.join(cells).encode('utf-8')))
+        except:
+            cells = [str(cell).rjust(width, ' ') for (cell, width) in zip(row, col_widths)]
+            result.write("{:>3} | {}|\n".format(row_index, '|'.join(cells)))
+
     result.write(hbar)
     result.seek(0)
     r = result.read()
 
     try:
-        return str(r)
-    except:
         return unicode(r)
+    except:
+        return str(r)
 
 
 def get_dimensions(table):

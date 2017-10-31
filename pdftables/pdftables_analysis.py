@@ -3,10 +3,8 @@
 # Ian Hopkinson, 2013-06-20
 # -*- coding: utf-8 -*-
 
-from __future__ import unicode_literals
 import sys
 import codecs
-sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 
 """
 Analysis and visualisation library for pdftables

@@ -52,22 +52,22 @@ class Leaf(object):
 
         return [self.bbox, self.classname, self.text][i]
 
-    def _left(self):
+    def left(self):
         return self.bbox[0]
 
-    def _bottom(self):
+    def bottom(self):
         return self.bbox[1]
 
-    def _right(self):
+    def right(self):
         return self.bbox[2]
 
-    def _top(self):
+    def top(self):
         return self.bbox[3]
 
-    def _midline(self):
+    def midline(self):
         return self.midline
 
-    def _centreline(self):
+    def centreline(self):
         return self.centreline
 
     def get_bbox(self):

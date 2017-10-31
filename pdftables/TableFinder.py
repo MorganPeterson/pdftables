@@ -20,7 +20,10 @@ from counter import Counter
 # TODO
 
 def pdftoxml(filename,options):
-    ConverterPath = unicode(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\bin\pdftohtml.exe')
+    try:
+        ConverterPath = unicode(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\bin\pdftohtml.exe')
+    except:
+        ConverterPath = str(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\bin\peftohtml.exe')
     directory = os.path.split(filename)[0]
     tmpxml = os.path.join(directory,"temph.xml")
     if tmpxml in os.listdir('.'):
@@ -61,7 +64,10 @@ def plotpage(pageheight,pagewidth,pagenumber,SelectedPDF,left,top,right):
     plt.show()
     return fig
 
-PDF_TEST_FILES = unicode(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\fixtures')
+try:
+    PDF_TEST_FILES = unicode(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\fixtures')
+except:
+    PDF_TEST_FILES = str(r'C:\Users\Ian\BitBucketRepos\0939-AgraInforma\fixtures')
 
 # PDFList = glob.glob(os.path.join(PDF_TEST_FILES,'*.pdf'))
 
