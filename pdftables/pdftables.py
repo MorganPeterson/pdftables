@@ -24,7 +24,6 @@ from pdfminer.pdfdevice import PDFDevice
 from pdfminer.layout import LAParams, LTPage
 from pdfminer.converter import PDFPageAggregator
 
-
 from tree import Leaf, LeafList
 from counter import Counter
 
@@ -184,8 +183,8 @@ def apply_combs(box_list, x_comb, y_comb):
     nrows = len(y_comb) - 1
     table_array = [[''] * ncolumns for j in range(nrows)]
     for box in box_list:
-        rowindex = comb(y_comb, round(box.midline))
-        columnindex = comb(x_comb, round(box.centreline))
+        rowindex = comb(y_comb, round(box.midline()))
+        columnindex = comb(x_comb, round(box.centreline()))
         if rowindex != -1 and columnindex != -1:
             # there was already some content at this coordinate so we
             # concatenate (in an arbitrary order!)
@@ -406,7 +405,7 @@ def page_to_tables(page, extend_y=False, hints=None, atomise=False):
         return list([])
 
     if atomise:
-        box_list = box_list.filterByType(['LTPage', 'LTChar'])
+        box_list = box_list.filter_by_type(['LTPage', 'LTChar'])
 
     row_projection, column_projection = get_projection(
         Leaf,
@@ -419,8 +418,8 @@ def page_to_tables(page, extend_y=False, hints=None, atomise=False):
     if extend_y:
         y_comb = comb_extend(
             y_comb,
-            min([box.bottom for box in box_list]),
-            max([box.top for box in box_list]))
+            min([box.bottom() for box in box_list]),
+            max([box.top() for box in box_list]))
 
     return apply_the_combs(box_list, x_comb, y_comb, atomise)
 
@@ -429,13 +428,13 @@ def find_table_bounding_box(box_list, hints=None):
     on a boxlist
     """
 
-    miny = min([box.bottom for box in box_list])
-    maxy = max([box.top for box in box_list])
-    minx = min([box.left for box in box_list])
-    maxx = max([box.right for box in box_list])
+    miny = min([box.bottom() for box in box_list])
+    maxy = max([box.top() for box in box_list])
+    minx = min([box.left() for box in box_list])
+    maxx = max([box.right() for box in box_list])
 
     # Get rid of LTChar for this stage
-    text_line_boxlist = box_list.filterByType('LTTextLineHorizontal')
+    text_line_boxlist = box_list.filter_by_type('LTTextLineHorizontal')
 
     # Try to reduce the y range with a threshold, wouldn't work for x"""
     yhisttop = text_line_boxlist.histogram(Leaf.top).rounder(2)
@@ -485,13 +484,14 @@ def calculate_modal_height(box_list):
     modal_height = Counter(height_list).most_common(1)
     return modal_height[0][0]
 
-def main(file_name, password):
+def main(args):
     """ main function """
-    with open(file_name, 'rb') as file_ptr:
-        tables = get_tables(file_ptr, password)
+    with open(args.file_name, 'rb') as file_ptr:
+        tables = get_tables(file_ptr, args.password)
         for i, table in enumerate(tables):
-            print("---- TABLE {} ----".format(i + 1))
-            print(to_string(table))
+            print("TABLE {}: ".format(i + 1))
+            if args.display:
+                print(to_string(table))
 
 if __name__ == '__main__':
     ARGS = argparse.ArgumentParser(description="Parse out tables from PDF")
@@ -503,5 +503,6 @@ if __name__ == '__main__':
                       default='',
                       dest='password',
                       help='PDF file password if required')
-    CL_RESULTS = ARGS.parse_args()
-    main(CL_RESULTS.file_name, CL_RESULTS.password)
+    ARGS.add_argument('-d', '--display', action='store_true',
+                      help='Output to terminal')
+    main(ARGS.parse_args())

@@ -1,11 +1,11 @@
-#!/usr/bin/env python
-import sys
-from collections import defaultdict
+"""display.py
 
-if sys.version_info[0] == 3:
-    from io import StringIO
-elif sys.version_info[0] == 2:
-    from cStringIO import StringIO
+This module displays the results of the table extraction in the terminal.
+
+"""
+
+from collections import defaultdict
+from io import StringIO
 
 def to_string(table):
     """
@@ -23,29 +23,30 @@ def to_string(table):
 
     try:
         result.write("      {}\n".format(' '.join(
-        [unicode(col_index).rjust(width, ' ') for (col_index, width)
-        in enumerate(col_widths)])))
-    except:
+            [unicode(col_index).rjust(width, ' ') for (col_index, width)
+             in enumerate(col_widths)])))
+    except NameError:
         result.write("      {}\n".format(' '.join(
-        [str(col_index).rjust(width, ' ') for (col_index, width)
-        in enumerate(col_widths)])))
+            [str(col_index).rjust(width, ' ') for (col_index, width)
+             in enumerate(col_widths)])))
+
     result.write(hbar)
     for row_index, row in enumerate(table):
         try:
             cells = [unicode(cell).rjust(width, ' ') for (cell, width) in zip(row, col_widths)]
             result.write("{:>3} | {}|\n".format(row_index, '|'.join(cells).encode('utf-8')))
-        except:
+        except NameError:
             cells = [str(cell).rjust(width, ' ') for (cell, width) in zip(row, col_widths)]
             result.write("{:>3} | {}|\n".format(row_index, '|'.join(cells)))
 
     result.write(hbar)
     result.seek(0)
-    r = result.read()
+    read_result = result.read()
 
     try:
-        return unicode(r)
-    except:
-        return str(r)
+        return unicode(read_result)
+    except NameError:
+        return str(read_result)
 
 
 def get_dimensions(table):
@@ -72,10 +73,7 @@ def find_column_widths(table):
     [5, 7]
     """
     col_widths = defaultdict(lambda: 0)
-    for row_index, row in enumerate(table):
+    for row in table:
         for column_index, cell in enumerate(row):
             col_widths[column_index] = max(col_widths[column_index], len(cell))
     return [col_widths[col] for col in sorted(col_widths)]
-
-if __name__ == '__main__':
-    print(to_string([['foo', 'goodbye'], ['llama', 'bar']]))

@@ -1,9 +1,4 @@
-#!/usr/bin/env python
-# ScraperWiki Limited
-# Ian Hopkinson, 2013-06-19
-# -*- coding: utf-8 -*-
-
-from __future__ import unicode_literals
+#pylint: disable=W0223
 """
 tree classes which hold the parsed PDF document data
 """
@@ -11,22 +6,20 @@ tree classes which hold the parsed PDF document data
 import collections
 from counter import Counter
 
-def _rounder(val,tol):
-     """
-     Utility function to round numbers to arbitrary tolerance
-     """
-     return round((1.0 * val) / tol) * tol
-
 class Histogram(Counter):
+    """ Returns itself """
     def rounder(self, tol):
-        c = Histogram()
+        """ Creates this class with Counter init """
+        histog = Histogram()
+        _rounder = lambda x, y: round((1.0 * x) / y) * y
         for item in self:
-            c = c + Histogram({_rounder(item, tol): self[item]})
-        return c
+            histog = histog + Histogram({_rounder(item, tol): self[item]})
+        return histog
 
 class Leaf(object):
+    """ Leaf """
     def __init__(self, obj):
-        if type(obj)==tuple:
+        if isinstance(obj, tuple):
             (self.bbox, self.classname, self.text) = obj
         else:
             if obj.__class__.__name__ != 'LTAnon':
@@ -36,41 +29,44 @@ class Leaf(object):
             self.classname = obj.__class__.__name__
             try:
                 self.text = obj.get_text()
-            except:
+            except AttributeError:
                 self.text = ''
 
-        (self.left, self.bottom, self.right, self.top) = self.bbox
-        self.midline = (self.top+self.bottom)/2.0
-        self.centreline = (self.left+self.right)/2.0
-        self.width = self.right-self.left
+        self.width = self.bbox[2] - self.bbox[0]
 
     def __getitem__(self, i):
         """backwards-compatibility helper, don't use it!"""
         error = ("DEPRECATED: don't use leaf[x] - use these instead: "
                  "[0]: bbox, [1]: classname, [2]: text")
         raise RuntimeError(error)
-
-        return [self.bbox, self.classname, self.text][i]
+        # return [self.bbox, self.classname, self.text][i]
 
     def left(self):
+        """ get left coordinate """
         return self.bbox[0]
 
     def bottom(self):
+        """ get bottom coordinate """
         return self.bbox[1]
 
     def right(self):
+        """ get right coordinate """
         return self.bbox[2]
 
     def top(self):
+        """ get top cooridinate """
         return self.bbox[3]
 
     def midline(self):
-        return self.midline
+        """ get self.midline value """
+        return (self.bbox[3] + self.bbox[1]) / 2.0
 
     def centreline(self):
-        return self.centreline
+        """ get self.centreline value """
+        return (self.bbox[0] + self.bbox[2]) / 2.0
 
     def get_bbox(self):
+        """ get self.bbox value """
         return self.bbox
 
 def children(obj):
@@ -82,27 +78,36 @@ def children(obj):
     yield obj
 
 class LeafList(list):
+    """ builds a list of Leaf instances """
     def purge_empty_text(self):
+        """ get rid of any empty text boxes """
         return LeafList(box for box in self if box.text.strip()
-                            or box.classname != 'LTTextLineHorizontal')
+                        or box.classname != 'LTTextLineHorizontal')
 
-    def filterByType(self, flt=None):
-        if not flt: return self
+    def filter_by_type(self, flt=None):
+        """ get filter boxes by type(flt) """
+        if not flt:
+            return self
         return LeafList(box for box in self if box.classname in flt)
 
     def histogram(self, dir_fun):
-        # index 0 = left, 1 = top, 2 = right, 3 = bottom
         """
+        bbox index: 0 = left, 1 = top, 2 = right, 3 = bottom
         for item in self:
             assert type(item) == Leaf, item
         """
         return Histogram(dir_fun(box) for box in self)
 
-    def populate(self, pdfpage, interested=['LTPage','LTTextLineHorizontal']):
+    def populate(self, pdfpage, interested=None):
+        """ build LeafList """
+        if interested is None:
+            interested = ["LTPage", "LTTextLineHorizontal"]
+
         for obj in children(pdfpage):
             if not interested or obj.__class__.__name__ in interested:
                 self.append(Leaf(obj))
         return self
 
     def count(self):
+        """ Get Count """
         return Counter(x.classname for x in self)

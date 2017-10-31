@@ -1,3 +1,7 @@
+"""counter.py
+    It counts.
+"""
+
 from operator import itemgetter
 from heapq import nlargest
 from itertools import repeat
@@ -23,12 +27,13 @@ class Counter(dict):
         c = Counter(a=4, b=2)                   # a new counter from keyword args
 
         """
+        super(Counter, self).__init__()
         self.update(iterable, **kwds)
 
     def __missing__(self, key):
         return 0
 
-    def most_common(self, n=None):
+    def most_common(self, top_n=None):
         '''List the n most common elements and their counts from the most
         common to the least.  If n is None, then list all element counts.
 
@@ -36,9 +41,9 @@ class Counter(dict):
         [('a', 5), ('r', 2), ('b', 2)]
 
         '''
-        if n is None:
+        if top_n is None:
             return sorted(self.items(), key=itemgetter(1), reverse=True)
-        return nlargest(n, self.items(), key=itemgetter(1))
+        return nlargest(top_n, self.items(), key=itemgetter(1))
 
     def elements(self):
         '''Iterator over elements repeating each as many times as its count.
@@ -56,9 +61,9 @@ class Counter(dict):
                 yield elem
 
     # Override dict methods where the meaning changes for Counter objects.
-
     @classmethod
-    def fromkeys(cls, iterable, v=None):
+    def fromkeys(cls, iterable, value=None):
+        """ Creates a new dictionary from keys from iterable and set to value. """
         raise NotImplementedError(
             'Counter.fromkeys() is undefined.  Use Counter(iterable) instead.')
 
