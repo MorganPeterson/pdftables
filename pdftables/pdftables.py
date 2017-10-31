@@ -284,7 +284,6 @@ def comb_extend(comb_left, minv, maxv):
     # Extend minimum
     if minv < minc:
         comb_left.reverse()
-        print(row_spacing)
         comb_left.extend(list(numpy.arange(minc, minv, (row_spacing * -1)))[1:])
         comb_left.reverse()
     # Extend maximum
